@@ -1,0 +1,61 @@
+name: Build unsigned IPA
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+    inputs:
+      scheme:
+        description: Xcode scheme
+        required: false
+        default: ACEL
+        type: string
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Extract zip source
+        run: |
+          for f in *.zip; do
+            if [ -f "$f" ]; then
+              echo "Extracting $f..."
+              unzip -q -o "$f"
+            fi
+          done
+
+      - name: Build and Package IPA
+        run: |
+          PROJ=$(find . -name "*.xcodeproj" -type d -print -quit)
+          echo "Found project: $PROJ"
+
+          SCHEME="${{ github.event.inputs.scheme || 'ACEL' }}"
+          if [ ! -d "$PROJ/xcshareddata/xcschemes/${SCHEME}.xcscheme" ]; then
+            SCHEME="XoneOS"
+          fi
+          echo "Using scheme: $SCHEME"
+
+          xcodebuild archive \
+            -project "$PROJ" \
+            -scheme "$SCHEME" \
+            -sdk iphoneos \
+            -configuration Release \
+            -archivePath "$RUNNER_TEMP/App.xcarchive" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            PRODUCT_BUNDLE_IDENTIFIER="com.acelios.hanx"
+
+          mkdir -p "$RUNNER_TEMP/Payload"
+          cp -R "$RUNNER_TEMP/App.xcarchive/Products/Applications/"*.app "$RUNNER_TEMP/Payload/"
+          cd "$RUNNER_TEMP"
+          zip -q -r -y "ACEL-SETTINGS-IOS.ipa" Payload
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: ACEL-SETTINGS-IOS-unsigned-ipa
+          path: ${{ runner.temp }}/ACEL-SETTINGS-IOS.ipa
